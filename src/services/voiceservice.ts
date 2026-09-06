@@ -1,7 +1,8 @@
 import AgoraRTC, { type IAgoraRTCClient, type IMicrophoneAudioTrack } from 'agora-rtc-sdk-ng';
 import { request } from './httpclient.js';
-import type { VoiceState, VoiceSettings, DiagnosticsResult, VoiceProfile } from '../types/index.js';
+import type { VoiceState, VoiceSettings, DiagnosticsResult, VoiceProfile, VoiceStyleId, VoiceStyleConfig } from '../types/index.js';
 import { toBCP47 } from '../../lib/voice/locale.js';
+import { deviceService } from './deviceservice.js';
 
 export interface AgoraSessionData {
   appId: string;
@@ -11,20 +12,30 @@ export interface AgoraSessionData {
   isMock: boolean;
 }
 
+export const VOICE_STYLES: VoiceStyleConfig[] = [
+  { id: 'deep-male', label: 'Deep Male', gender: 'male', pitch: 0.72, rate: 0.88, description: 'Deep, resonant, and authoritative male tone' },
+  { id: 'natural-male', label: 'Natural Male', gender: 'male', pitch: 1.0, rate: 0.95, description: 'Balanced, clear conversational everyday male voice' },
+  { id: 'energetic-male', label: 'Energetic Male', gender: 'male', pitch: 1.08, rate: 1.12, description: 'Lively, upbeat, and fast-paced male voice' },
+  { id: 'soft-female', label: 'Soft Female', gender: 'female', pitch: 0.95, rate: 0.82, description: 'Calm, gentle, soothing, and patient female voice' },
+  { id: 'natural-female', label: 'Natural Female', gender: 'female', pitch: 1.0, rate: 0.95, description: 'Warm, clear conversational everyday female voice' },
+];
+
 const DEFAULT_SETTINGS: VoiceSettings = {
-  speechRate: 0.85,
+  speechRate: 0.95,
   speechPitch: 1.0,
   speechVolume: 1.0,
-  autoReadResponses: false,
+  autoReadResponses: true,
   voiceGender: 'auto',
   voiceStyle: 'natural',
+  selectedVoiceStyle: 'natural-male',
 };
 
 export const VOICE_PROFILES: VoiceProfile[] = [
-  { id: 'male-natural', name: 'Male Natural', gender: 'male', style: 'natural', lang: 'en-US', description: 'Warm male voice' },
-  { id: 'female-natural', name: 'Female Natural', gender: 'female', style: 'natural', lang: 'en-US', description: 'Clear female voice' },
-  { id: 'male-clear', name: 'Male Clear', gender: 'male', style: 'clear', lang: 'en-US', description: 'Crisp male voice' },
-  { id: 'female-warm', name: 'Female Warm', gender: 'female', style: 'warm', lang: 'en-US', description: 'Warm female voice' },
+  { id: 'female-natural', name: 'Female Natural (Indian/Global)', gender: 'female', style: 'natural', lang: 'en-IN', description: 'Warm, clear conversational voice' },
+  { id: 'male-natural', name: 'Male Natural (Indian/Global)', gender: 'male', style: 'natural', lang: 'en-IN', description: 'Deep, calm friendly voice' },
+  { id: 'hindi-female', name: 'हिंदी - मधुर आवाज़ (Hindi Female)', gender: 'female', style: 'natural', lang: 'hi-IN', description: 'स्वाभाविक और स्पष्ट हिंदी आवाज़' },
+  { id: 'hindi-male', name: 'हिंदी - शांत आवाज़ (Hindi Male)', gender: 'male', style: 'natural', lang: 'hi-IN', description: 'स्पष्ट और धीमा उच्चारण' },
+  { id: 'female-warm', name: 'Female Gentle (Elderly Care)', gender: 'female', style: 'warm', lang: 'en-US', description: 'Slow-paced, clear enunciation' },
 ];
 
 class VoiceService {
@@ -36,7 +47,7 @@ class VoiceService {
   private audioChunks: Blob[] = [];
   private mediaStream: MediaStream | null = null;
 
-  // Rapida-style Voice AI State Machine
+  // Voice AI State Machine
   private currentState: VoiceState = 'idle';
   private stateListeners: Set<(state: VoiceState) => void> = new Set();
   private captionListeners: Set<(caption: string, isSpeaking: boolean) => void> = new Set();
@@ -44,6 +55,8 @@ class VoiceService {
   // Voice Settings with LocalStorage persistence
   private settings: VoiceSettings = { ...DEFAULT_SETTINGS };
   private cachedVoices: SpeechSynthesisVoice[] = [];
+  private activeUtteranceQueue: SpeechSynthesisUtterance[] = [];
+  private isInterruptedFlag = false;
 
   constructor() {
     this.loadSettings();
@@ -52,10 +65,15 @@ class VoiceService {
 
   private prewarmVoices() {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      const load = () => { this.cachedVoices = window.speechSynthesis.getVoices(); };
+      const load = () => {
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length) this.cachedVoices = voices;
+      };
       load();
       window.speechSynthesis.onvoiceschanged = load;
-      window.speechSynthesis.getVoices();
+      try {
+        window.speechSynthesis.getVoices();
+      } catch {}
     }
   }
 
@@ -84,17 +102,75 @@ class VoiceService {
     const base = bcp47.split('-')[0].toLowerCase();
     const voices = this.getAvailableVoices();
     if (!voices.length) return null;
+
     const gender = this.settings.voiceGender || 'auto';
-    let candidates = voices.filter(v => v.lang.toLowerCase() === bcp47.toLowerCase());
-    if (!candidates.length) candidates = voices.filter(v => v.lang.toLowerCase().startsWith(base));
-    if (!candidates.length) candidates = voices.filter(v => v.lang.toLowerCase().startsWith('en'));
+    const isHindiTarget = base === 'hi' || bcp47.toLowerCase().includes('hi-in') || lang.toLowerCase().startsWith('hi');
+
+    // 1. Specialized Hindi Voice Matching: Ensure Hindi text uses native Hindi TTS voices
+    if (isHindiTarget) {
+      const hindiVoices = voices.filter((v) => {
+        const vl = v.lang.toLowerCase();
+        const vn = v.name.toLowerCase();
+        return (
+          vl.startsWith('hi') ||
+          vl.includes('hi-in') ||
+          vn.includes('hindi') ||
+          vn.includes('हिन्दी') ||
+          vn.includes('kalpana') ||
+          vn.includes('hemant') ||
+          vn.includes('swara') ||
+          vn.includes('lekha') ||
+          vn.includes('madhur')
+        );
+      });
+
+      if (hindiVoices.length > 0) {
+        if (gender === 'female') {
+          const femaleHindi = hindiVoices.find((v) => {
+            const vn = v.name.toLowerCase();
+            return vn.includes('female') || vn.includes('kalpana') || vn.includes('swara') || vn.includes('lekha') || vn.includes('zira');
+          });
+          if (femaleHindi) return femaleHindi;
+        } else if (gender === 'male') {
+          const maleHindi = hindiVoices.find((v) => {
+            const vn = v.name.toLowerCase();
+            return vn.includes('male') || vn.includes('hemant') || vn.includes('madhur') || vn.includes('rishi');
+          });
+          if (maleHindi) return maleHindi;
+        }
+        // Prefer Google or Natural Hindi voice
+        const naturalHindi = hindiVoices.find((v) => v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Neural'));
+        return naturalHindi || hindiVoices[0];
+      }
+      // If no native Hindi voice is present, return null so browser doesn't force an English voice on Hindi script
+      return null;
+    }
+
+    // 2. Standard Language Matching
+    let candidates = voices.filter((v) => v.lang.toLowerCase() === bcp47.toLowerCase());
+    if (!candidates.length) {
+      candidates = voices.filter((v) => v.lang.toLowerCase().startsWith(base));
+    }
+    if (!candidates.length && base !== 'en') {
+      candidates = voices.filter((v) => v.lang.toLowerCase().startsWith('en'));
+    }
     if (!candidates.length) candidates = voices;
+
+    // Filter by preferred gender if specified
     if (gender !== 'auto') {
-      const keywords = gender === 'male' ? ['male', 'david', 'mark', 'alex', 'daniel'] : ['female', 'zira', 'susan', 'samantha', 'karen', 'victoria'];
-      const matched = candidates.filter(v => keywords.some(k => v.name.toLowerCase().includes(k)));
+      const keywords =
+        gender === 'male'
+          ? ['male', 'david', 'mark', 'alex', 'daniel', 'george', 'rishi', 'hemant', 'guy', 'james', 'google uk english male']
+          : ['female', 'zira', 'susan', 'samantha', 'karen', 'victoria', 'swara', 'veena', 'kalpana', 'jenny', 'google uk english female'];
+      const matched = candidates.filter((v) => keywords.some((k) => v.name.toLowerCase().includes(k)));
       if (matched.length) return matched[0];
       if (candidates.length > 1) return gender === 'male' ? candidates[0] : candidates[candidates.length - 1];
     }
+
+    // Prefer Google or Natural voices if available
+    const naturalVoice = candidates.find((v) => v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Neural'));
+    if (naturalVoice) return naturalVoice;
+
     return candidates[0] || null;
   }
 
@@ -108,9 +184,20 @@ class VoiceService {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem('echosphere_voice_settings', JSON.stringify(this.settings));
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
+  }
+
+  setVoiceStyle(styleId: VoiceStyleId) {
+    const config = VOICE_STYLES.find((s) => s.id === styleId);
+    if (!config) return;
+    const updated: VoiceSettings = {
+      ...this.settings,
+      selectedVoiceStyle: styleId,
+      voiceGender: config.gender,
+      speechPitch: config.pitch,
+      speechRate: config.rate,
+    };
+    this.updateSettings(updated);
   }
 
   getState(): VoiceState {
@@ -212,12 +299,12 @@ class VoiceService {
         throw new Error('Microphone access is not supported in this browser.');
       }
 
+      this.interrupt();
+      deviceService.playChime('start');
       this.setState('listening');
       this.audioChunks = [];
       this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : 'audio/mp4';
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
 
       this.mediaRecorder = new MediaRecorder(this.mediaStream, { mimeType });
 
@@ -228,6 +315,7 @@ class VoiceService {
       };
 
       this.mediaRecorder.onstop = () => {
+        deviceService.playChime('stop');
         const audioBlob = new Blob(this.audioChunks, { type: mimeType });
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -236,7 +324,6 @@ class VoiceService {
         };
         reader.readAsDataURL(audioBlob);
 
-        // Stop all audio tracks
         if (this.mediaStream) {
           this.mediaStream.getTracks().forEach((track) => track.stop());
           this.mediaStream = null;
@@ -258,43 +345,101 @@ class VoiceService {
     }
   }
 
-  // Enhanced TTS with voice types, chunking, Indian language support, reduced glitches
+  // High Quality TTS with Instant Interrupt and zero lag
   speak(text: string, lang = 'en-US', onEnd?: () => void) {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) { onEnd?.(); return; }
-    window.speechSynthesis.cancel();
-    // Brief pause to let cancel propagate and reduce glitches
-    setTimeout(() => this.doSpeak(text, lang, onEnd), 50);
-  }
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      onEnd?.();
+      return;
+    }
 
-  private doSpeak(text: string, lang: string, onEnd?: () => void) {
-    const bcp47 = toBCP47(lang);
-    const clean = text.replace(/```[\s\S]*?```/g, ' ').replace(/##+\s*/g, '').replace(/\*\*/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[-*•]\s*/g, '').replace(/\s+/g, ' ').trim().slice(0, 2000);
-    if (!clean) { onEnd?.(); return; }
+    // Immediately cancel any previous speech
+    this.isInterruptedFlag = false;
+    window.speechSynthesis.cancel();
+    this.activeUtteranceQueue = [];
+
+    // Normalize text for speech (clean markdown, remove URLs, expand abbreviations)
+    const clean = this.normalizeForSpeech(text);
+    if (!clean) {
+      onEnd?.();
+      return;
+    }
+
+    // Check if Hindi script is present
+    const hasHindi = /[ऀ-ॿ]/.test(clean);
+    const targetLang = hasHindi ? 'hi-IN' : toBCP47(lang);
+
     this.setState('speaking');
     this.broadcastCaption(clean, true);
-    const chunks = clean.match(/[^.!?।॥]+[.!?।॥]+|[^.!?।॥]+$/g) || [clean];
-    const queue = chunks.slice(0, 12);
+
+    // Break into natural sentence chunks for fluid cadence
+    const chunks = clean.match(/[^.!?।॥\n]+[.!?।॥\n]+|[^.!?।॥\n]+$/g) || [clean];
+    const queue = chunks.slice(0, 15);
     let idx = 0;
+
     const speakNext = () => {
-      if (idx >= queue.length) { this.setState('idle'); this.broadcastCaption('', false); onEnd?.(); return; }
-      const chunk = queue[idx].trim().slice(0, 250);
+      if (this.isInterruptedFlag || idx >= queue.length) {
+        if (this.currentState === 'speaking') {
+          this.setState('idle');
+        }
+        this.broadcastCaption('', false);
+        onEnd?.();
+        return;
+      }
+
+      const chunk = queue[idx].trim().slice(0, 300);
       idx++;
-      if (!chunk) { speakNext(); return; }
+      if (!chunk) {
+        speakNext();
+        return;
+      }
+
       const utterance = new SpeechSynthesisUtterance(chunk);
-      utterance.lang = bcp47;
-      utterance.rate = Math.max(0.6, Math.min(1.4, this.settings.speechRate));
-      utterance.pitch = Math.max(0.7, Math.min(1.3, this.settings.speechPitch));
+      utterance.lang = targetLang;
+      utterance.rate = Math.max(0.6, Math.min(1.35, this.settings.speechRate));
+      utterance.pitch = Math.max(0.6, Math.min(1.45, this.settings.speechPitch));
       utterance.volume = Math.max(0.1, Math.min(1.0, this.settings.speechVolume));
-      const best = this.getBestVoice(bcp47);
-      if (best) utterance.voice = best;
-      utterance.onend = () => setTimeout(speakNext, 80);
-      utterance.onerror = (e) => { console.warn('TTS chunk error:', e); setTimeout(speakNext, 80); };
+
+      const bestVoice = this.getBestVoice(targetLang);
+      if (bestVoice) utterance.voice = bestVoice;
+
+      utterance.onend = () => {
+        if (!this.isInterruptedFlag) {
+          // Minimal 40ms pause between sentences for natural breathing rhythm
+          setTimeout(speakNext, 40);
+        }
+      };
+
+      utterance.onerror = (e) => {
+        if (!this.isInterruptedFlag) {
+          setTimeout(speakNext, 40);
+        }
+      };
+
+      this.activeUtteranceQueue.push(utterance);
       window.speechSynthesis.speak(utterance);
     };
+
     speakNext();
   }
 
+  private normalizeForSpeech(text: string): string {
+    return text
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/##+\s*/g, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/https?:\/\/\S+/g, 'link')
+      .replace(/[-*•]\s+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 3000);
+  }
+
+  // Instant Interrupt: Stops all voice synthesis immediately
   interrupt() {
+    this.isInterruptedFlag = true;
     this.stopSpeaking();
     this.stopListening();
     this.setState('interrupted');
@@ -303,12 +448,14 @@ class VoiceService {
       if (this.currentState === 'interrupted') {
         this.setState('idle');
       }
-    }, 250);
+    }, 150);
   }
 
   stopSpeaking() {
+    this.isInterruptedFlag = true;
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
+      this.activeUtteranceQueue = [];
       this.broadcastCaption('', false);
       if (this.currentState === 'speaking') {
         this.setState('idle');
@@ -316,23 +463,23 @@ class VoiceService {
     }
   }
 
-  // Browser Speech Recognition (STT) with state broadcasting
+  // Fast Browser Speech Recognition (STT) with interim feedback and final processing
   startListening(
     lang = 'en-US',
-    onResult: (transcript: string) => void,
+    onResult: (transcript: string, isFinal?: boolean) => void,
     onError: (err: any) => void
   ) {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      onError(new Error('Speech recognition is not supported in this browser. Try Chrome/Edge.'));
+      onError(new Error('Speech recognition is not supported in this browser. Try Chrome or Edge.'));
       return;
     }
 
     try {
       this.interrupt();
-      try { window.speechSynthesis?.cancel(); } catch {}
+      deviceService.playChime('start');
       this.setState('listening');
       this.recognition = new SpeechRecognition();
       this.recognition.lang = toBCP47(lang);
@@ -340,22 +487,44 @@ class VoiceService {
       this.recognition.continuous = false;
       this.recognition.maxAlternatives = 1;
 
+      let finalTranscript = '';
+
       this.recognition.onresult = (event: any) => {
-        let transcript = '';
+        let interimTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          transcript += event.results[i][0].transcript;
+          const trans = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += trans;
+          } else {
+            interimTranscript += trans;
+          }
         }
-        this.broadcastCaption(`You: ${transcript}`, false);
-        onResult(transcript);
+        const currentText = (finalTranscript || interimTranscript).trim();
+        if (currentText) {
+          this.broadcastCaption(`You: ${currentText}`, false);
+        }
+        if (finalTranscript.trim()) {
+          onResult(finalTranscript.trim(), true);
+        } else if (interimTranscript.trim()) {
+          onResult(interimTranscript.trim(), false);
+        }
       };
 
       this.recognition.onend = () => {
+        deviceService.playChime('stop');
         if (this.currentState === 'listening') {
           this.setState('idle');
+        }
+        // If recognition ended without isFinal triggered but we have captured final text
+        if (finalTranscript.trim()) {
+          onResult(finalTranscript.trim(), true);
         }
       };
 
       this.recognition.onerror = (e: any) => {
+        if (e.error !== 'no-speech' && e.error !== 'aborted') {
+          deviceService.playChime('stop');
+        }
         this.setState('idle');
         onError(e);
       };
@@ -371,9 +540,7 @@ class VoiceService {
     if (this.recognition) {
       try {
         this.recognition.stop();
-      } catch {
-        // ignore
-      }
+      } catch {}
       this.recognition = null;
       if (this.currentState === 'listening') {
         this.setState('idle');
@@ -381,7 +548,7 @@ class VoiceService {
     }
   }
 
-  // Agora CLI-style & Audio Diagnostic Self-Test
+  // Audio Diagnostic Self-Test
   async runDiagnostics(): Promise<DiagnosticsResult> {
     const result: DiagnosticsResult = {
       micAvailable: false,
@@ -391,12 +558,10 @@ class VoiceService {
       timestamp: new Date().toISOString(),
     };
 
-    // 1. Check Speech Synthesis
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       result.speechSynthAvailable = true;
     }
 
-    // 2. Check Speech Recognition
     if (
       typeof window !== 'undefined' &&
       ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
@@ -404,7 +569,6 @@ class VoiceService {
       result.webSpeechAvailable = true;
     }
 
-    // 3. Check Microphone Hardware Availability
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -414,7 +578,6 @@ class VoiceService {
       result.micAvailable = false;
     }
 
-    // 4. Check Agora RTC backend endpoint
     try {
       const tokenRes = await this.getAgoraToken();
       if (tokenRes && tokenRes.appId) {

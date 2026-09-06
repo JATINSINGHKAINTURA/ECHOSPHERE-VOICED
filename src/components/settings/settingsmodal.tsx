@@ -10,9 +10,12 @@ import {
   Sparkles,
   Activity,
   AlertCircle,
+  User,
+  Volume1,
+  Check,
 } from 'lucide-react';
-import { voiceService } from '../../services/voiceservice.js';
-import type { IntegrationStatus, DiagnosticsResult } from '../../types/index.js';
+import { voiceService, VOICE_STYLES } from '../../services/voiceservice.js';
+import type { IntegrationStatus, DiagnosticsResult, VoiceStyleId } from '../../types/index.js';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -31,24 +34,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleSelectVoiceStyle = (styleId: VoiceStyleId) => {
+    voiceService.setVoiceStyle(styleId);
+    const updated = voiceService.getSettings();
+    setSettings(updated);
+
+    const styleObj = VOICE_STYLES.find((s) => s.id === styleId);
+    const sampleText = styleObj ? `${styleObj.label} voice style selected for EchoSphere.` : 'Voice style updated.';
+    voiceService.speak(sampleText, 'en-US');
+  };
+
   const handleRateChange = (rate: number) => {
     const updated = { ...settings, speechRate: rate };
     setSettings(updated);
     voiceService.updateSettings({ speechRate: rate });
     voiceService.speak('This is how EchoSphere will sound.', 'en-US');
-  };
-
-  const handleVoiceGenderChange = (gender: 'male' | 'female' | 'auto') => {
-    const updated = { ...settings, voiceGender: gender };
-    setSettings(updated);
-    voiceService.updateSettings({ voiceGender: gender });
-    voiceService.speak(gender === 'male' ? 'Male voice selected.' : gender === 'female' ? 'Female voice selected.' : 'Auto voice selected.', 'en-US');
-  };
-
-  const handleVoiceStyleChange = (style: 'natural' | 'clear' | 'warm' | 'energetic') => {
-    const updated = { ...settings, voiceStyle: style };
-    setSettings(updated);
-    voiceService.updateSettings({ voiceStyle: style });
   };
 
   const handleToggleAutoRead = () => {
@@ -81,12 +81,71 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div className="p-6 space-y-5 overflow-y-auto flex-1">
+          {/* Voice Preferences Section */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Volume2 size={14} className="text-blue-400" />
+                Voice Preferences
+              </h3>
+              <span className="text-[11px] text-blue-400 font-medium">Select & preview</span>
+            </div>
+
+            <div className="bg-zinc-900/70 border border-zinc-800 rounded-xl p-3.5 space-y-2.5">
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Choose EchoSphere&apos;s voice profile. The selected profile is saved to your preferences and applied consistently across all text-to-speech responses:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                {VOICE_STYLES.map((style) => {
+                  const isSelected = settings.selectedVoiceStyle === style.id;
+                  return (
+                    <button
+                      key={style.id}
+                      type="button"
+                      onClick={() => handleSelectVoiceStyle(style.id)}
+                      className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-all ${
+                        isSelected
+                          ? 'bg-blue-600/20 border-blue-500/80 text-white shadow-sm ring-1 ring-blue-500/30'
+                          : 'bg-zinc-900/80 border-zinc-800 text-zinc-300 hover:bg-zinc-800/70 hover:border-zinc-700'
+                      }`}
+                    >
+                      <div
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                          isSelected ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400'
+                        }`}
+                      >
+                        {isSelected ? <Check size={14} /> : <Volume2 size={14} />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-zinc-100">{style.label}</span>
+                          <span
+                            className={`text-[10px] uppercase font-mono px-1.5 py-0.2 rounded ${
+                              style.gender === 'male'
+                                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                : 'bg-pink-500/10 text-pink-400 border border-pink-500/20'
+                            }`}
+                          >
+                            {style.gender}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 line-clamp-1 mt-0.5">
+                          {style.description}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
           {/* Accessible Audio & Speech Engine */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
                 <Volume2 size={14} className="text-blue-400" />
-                Voice & Speech Pacing
+                Speech Cadence & Options
               </h3>
               <span className="text-[11px] text-zinc-500">Accessible TTS</span>
             </div>
@@ -97,17 +156,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span className="text-zinc-300 font-medium">Speech Speed (Cadence)</span>
                   <span className="text-blue-400 font-mono font-semibold">
                     {settings.speechRate}x{' '}
-                    {settings.speechRate <= 0.8
-                      ? '(Gentle for Seniors/Kids)'
-                      : settings.speechRate <= 0.95
-                      ? '(Clear)'
-                      : '(Standard)'}
+                    {settings.speechRate <= 0.85
+                      ? '(Gentle & Slow)'
+                      : settings.speechRate <= 1.0
+                      ? '(Natural)'
+                      : '(Energetic)'}
                   </span>
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   {[
                     { label: '0.75x Slow', val: 0.75 },
-                    { label: '0.85x Clear', val: 0.85 },
+                    { label: '0.88x Gentle', val: 0.88 },
                     { label: '1.0x Normal', val: 1.0 },
                     { label: '1.15x Fast', val: 1.15 },
                   ].map((option) => (
@@ -125,39 +184,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                   ))}
                 </div>
-              </div>
-
-              {/* Voice Type Selection */}
-              <div className="pt-3 border-t border-zinc-800 space-y-3">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-zinc-300 font-medium">Voice Type</span>
-                  <span className="text-zinc-500 text-[11px]">Male / Female / Auto</span>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['male', 'female', 'auto'] as const).map((g) => (
-                    <button
-                      key={g}
-                      type="button"
-                      onClick={() => handleVoiceGenderChange(g)}
-                      className={`px-2 py-2 rounded-lg text-xs font-medium border transition-all capitalize ${settings.voiceGender === g ? 'bg-blue-600 border-blue-500 text-white' : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-300 hover:bg-zinc-700/80'}`}
-                    >
-                      {g === 'auto' ? 'Auto' : g}
-                    </button>
-                  ))}
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {(['natural', 'clear', 'warm', 'energetic'] as const).map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => handleVoiceStyleChange(s)}
-                      className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-all capitalize ${settings.voiceStyle === s ? 'bg-cyan-600 border-cyan-500 text-white' : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-300 hover:bg-zinc-700/80'}`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[11px] text-zinc-500">Voice adapts to Hindi/Marathi etc. automatically. Try different styles!</p>
               </div>
 
               {/* Auto-read responses aloud toggle */}
@@ -192,7 +218,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
                 <Activity size={14} className="text-emerald-400" />
-                Audio & Agora Diagnostics
+                Audio & Hardware Diagnostics
               </h3>
               <button
                 onClick={handleRunDiagnostics}

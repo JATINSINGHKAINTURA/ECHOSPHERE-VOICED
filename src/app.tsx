@@ -11,13 +11,25 @@ import {
   fetchUserPreferences,
 } from './services/firebaseservice.js';
 import { AppLayout } from './components/layout/applayout.js';
+import type { EchoNavTab } from './components/layout/header.js';
 import { HomePage } from './pages/home.js';
+import { EchoSphereMainView } from './components/home/EchoSphereMainView.js';
+import { GuideBotsDirectory } from './components/guidebots/GuideBotsDirectory.js';
+import { ConversationHistoryView } from './components/history/ConversationHistoryView.js';
+import type { GuideBotItem } from './components/home/GuideBotsSection.js';
+import type { ActionChip } from './components/home/ActionChipsSection.js';
 import { EasyEchoMode } from './components/accessible/easyechomode.js';
 import { AccessibleCaptions } from './components/voice/accessiblecaptions.js';
+import { VoiceBrowserOnboarding } from './components/onboarding/voicebrowseronboarding.js';
 import { CommandPalette } from './components/common/commandpalette.js';
 import { SettingsModal } from './components/settings/settingsmodal.js';
 import { TranscriptionModal } from './components/audio/transcriptionmodal.js';
 import { LiveApiMode } from './components/voice/liveapimode.js';
+import { WebReaderModal } from './components/browser/WebReaderModal.js';
+import { DeviceFeatureHub } from './components/device/DeviceFeatureHub.js';
+import { CameraViewfinderModal } from './components/device/CameraViewfinderModal.js';
+import { ScreenShareModal } from './components/device/ScreenShareModal.js';
+import { GuideBotCompanionView } from './components/guidebots/GuideBotCompanionView.js';
 import { ErrorBoundary } from './components/common/errorboundary.js';
 import { useLanguage } from './hooks/uselanguage.js';
 import {
@@ -35,7 +47,15 @@ import {
   executeTool,
 } from './services/toolservice.js';
 import { voiceService } from './services/voiceservice.js';
-import { isBrowserRequest, getBrowserIntent, browserClarificationReply, browserActionReply } from './lib/persona.js';
+import { webReaderService } from './services/webreaderservice.js';
+import { deviceService } from './services/deviceservice.js';
+import {
+  isBrowserRequest,
+  getBrowserIntent,
+  browserClarificationReply,
+  browserActionReply,
+  isLanguageSwitchRequest,
+} from './lib/persona.js';
 import { getSiteUrl, openBrowserTab } from './lib/browserHandler.js';
 import { INITIAL_CONVERSATIONS } from './data/mockchats.js';
 import type { Conversation, Message } from './types/chat.js';
@@ -50,10 +70,13 @@ export function App() {
   const [isSigningIn, setIsSigningIn] = useState(false);
 
   // Chat & Session state
+  const [activeTab, setActiveTab] = useState<EchoNavTab>('home');
   const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
   const [activeConversationId, setActiveConversationId] = useState<string>('conv-welcome');
   const [messages, setMessages] = useState<Message[]>(INITIAL_CONVERSATIONS[0].messages);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSpeakingResponse, setIsSpeakingResponse] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState<string>('');
   const [lastBrowserSite, setLastBrowserSite] = useState<string | null>(null);
 
   // Gemini Models & Features
@@ -107,10 +130,17 @@ export function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTranscribeModalOpen, setIsTranscribeModalOpen] = useState(false);
   const [isLiveVoiceModalOpen, setIsLiveVoiceModalOpen] = useState(false);
+  const [isVoiceGuideOpen, setIsVoiceGuideOpen] = useState(false);
+  const [isWebReaderOpen, setIsWebReaderOpen] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isScreenShareOpen, setIsScreenShareOpen] = useState(false);
+  const [isDeviceHubOpen, setIsDeviceHubOpen] = useState(false);
+  const [activeCompanionBot, setActiveCompanionBot] = useState<GuideBotItem | null>(null);
 
   // Audio & Accessibility state
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [manualHeroStatus, setManualHeroStatus] = useState<'listen' | 'understand' | 'respond' | 'help' | null>(null);
   const [isAccessibleMode, setIsAccessibleMode] = useState<boolean>(() => {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
@@ -284,8 +314,166 @@ export function App() {
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
 
-    // Voice-controlled browser navigation
     const lang = currentLanguage.code;
+    const lowerText = text.toLowerCase().trim();
+
+    // 0. Language Switch Voice Command (e.g. "Hindi mein baat karo", "Speak in English")
+    const langSwitch = isLanguageSwitchRequest(text);
+    if (langSwitch.isSwitch && langSwitch.lang) {
+      const targetLang = langSwitch.lang;
+      const langConfig =
+        targetLang === 'hi-IN'
+          ? { code: 'hi-IN', label: 'हिन्दी', name: 'Hindi', flag: '🇮🇳' }
+          : { code: 'en-US', label: 'English', name: 'English (US)', flag: '🇺🇸' };
+      setLanguage(langConfig as any);
+      const reply =
+        langSwitch.reply ||
+        (targetLang === 'hi-IN'
+          ? 'नमस्ते! अब मैं आपसे हिंदी में बात करूंगा। बताइए, मैं आपकी क्या सहायता कर सकता हूँ?'
+          : 'Sure! I am now speaking in English. How can I help you?');
+      const assistantMsg: Message = {
+        id: 'ast-' + Date.now(),
+        conversationId: activeConversationId,
+        role: 'assistant',
+        content: reply,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+      if (currentUser) {
+        await saveUserMessage(currentUser.uid, activeConversationId, userMsg);
+        await saveUserMessage(currentUser.uid, activeConversationId, assistantMsg);
+      }
+      setIsSpeakingResponse(true);
+      voiceService.speak(reply, targetLang, () => setIsSpeakingResponse(false));
+      setIsLoading(false);
+      return;
+    }
+
+    // 1. Direct Web Reader voice command parsing
+    const readerCmd = webReaderService.parseBrowserCommand(text);
+    if (readerCmd) {
+      if (readerCmd.action === 'open' && readerCmd.siteId) {
+        webReaderService.openWebsite(readerCmd.siteId);
+        setIsWebReaderOpen(true);
+        const activeSite = webReaderService.getActiveSite();
+        const sectionNames = activeSite?.sections.join(', ') || 'top headlines';
+        const reply = `${activeSite?.name || 'Website'} is open. I found ${sectionNames}. Which section would you like me to read aloud?`;
+        
+        const assistantMsg: Message = {
+          id: 'ast-' + Date.now(),
+          conversationId: activeConversationId,
+          role: 'assistant',
+          content: reply,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+        if (currentUser) {
+          await saveUserMessage(currentUser.uid, activeConversationId, userMsg);
+          await saveUserMessage(currentUser.uid, activeConversationId, assistantMsg);
+        }
+        voiceService.speak(reply, lang);
+        setIsLoading(false);
+        return;
+      } else if (webReaderService.getIsOpen() || isWebReaderOpen) {
+        const handledMsg = webReaderService.performVoiceCommand(text);
+        if (handledMsg) {
+          const assistantMsg: Message = {
+            id: 'ast-' + Date.now(),
+            conversationId: activeConversationId,
+            role: 'assistant',
+            content: handledMsg,
+            timestamp: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+          if (currentUser) {
+            await saveUserMessage(currentUser.uid, activeConversationId, userMsg);
+            await saveUserMessage(currentUser.uid, activeConversationId, assistantMsg);
+          }
+          voiceService.speak(handledMsg, lang);
+          setIsLoading(false);
+          return;
+        }
+      }
+    }
+
+    // 2. Camera hardware visual trigger
+    if (
+      lowerText.includes('open camera') ||
+      lowerText.includes('take a photo') ||
+      lowerText.includes('scan document') ||
+      lowerText.includes('look at this') ||
+      lowerText.includes('read this paper')
+    ) {
+      setIsCameraOpen(true);
+      const reply = 'Camera visual assistant is active. Point at your document or object to inspect.';
+      const assistantMsg: Message = {
+        id: 'ast-' + Date.now(),
+        conversationId: activeConversationId,
+        role: 'assistant',
+        content: reply,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+      if (currentUser) {
+        await saveUserMessage(currentUser.uid, activeConversationId, userMsg);
+        await saveUserMessage(currentUser.uid, activeConversationId, assistantMsg);
+      }
+      voiceService.speak(reply, lang);
+      setIsLoading(false);
+      return;
+    }
+
+    // 3. Screen sharing assistant trigger
+    if (
+      lowerText.includes('share screen') ||
+      lowerText.includes('screen reader') ||
+      lowerText.includes('read my screen')
+    ) {
+      setIsScreenShareOpen(true);
+      const reply = 'Screen sharing assistant started. Ready to read and guide your screen.';
+      const assistantMsg: Message = {
+        id: 'ast-' + Date.now(),
+        conversationId: activeConversationId,
+        role: 'assistant',
+        content: reply,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+      if (currentUser) {
+        await saveUserMessage(currentUser.uid, activeConversationId, userMsg);
+        await saveUserMessage(currentUser.uid, activeConversationId, assistantMsg);
+      }
+      voiceService.speak(reply, lang);
+      setIsLoading(false);
+      return;
+    }
+
+    // 4. Device hardware hub trigger
+    if (
+      lowerText.includes('device features') ||
+      lowerText.includes('check permissions') ||
+      lowerText.includes('hardware status')
+    ) {
+      setIsDeviceHubOpen(true);
+      const reply = 'Device capabilities hub is open. All microphone, camera, and notification features are ready.';
+      const assistantMsg: Message = {
+        id: 'ast-' + Date.now(),
+        conversationId: activeConversationId,
+        role: 'assistant',
+        content: reply,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+      if (currentUser) {
+        await saveUserMessage(currentUser.uid, activeConversationId, userMsg);
+        await saveUserMessage(currentUser.uid, activeConversationId, assistantMsg);
+      }
+      voiceService.speak(reply, lang);
+      setIsLoading(false);
+      return;
+    }
+
+    // Voice-controlled browser navigation (External tabs)
     const browserIntent = getBrowserIntent(text);
     const isBrowser = isBrowserRequest(text);
     let effectiveSite: string | null = browserIntent?.site || null;
@@ -303,7 +491,8 @@ export function App() {
         const assistantMsg: Message = { id: 'ast-' + Date.now(), conversationId: activeConversationId, role: 'assistant', content: reply, timestamp: new Date().toISOString() };
         setMessages((prev) => [...prev, assistantMsg]);
         if (currentUser) { await saveUserMessage(currentUser.uid, activeConversationId, userMsg); await saveUserMessage(currentUser.uid, activeConversationId, assistantMsg); }
-        voiceService.speak(reply, lang);
+        setIsSpeakingResponse(true);
+        voiceService.speak(reply, lang, () => setIsSpeakingResponse(false));
         setIsLoading(false);
         return;
       }
@@ -315,7 +504,8 @@ export function App() {
         const assistantMsg: Message = { id: 'ast-' + Date.now(), conversationId: activeConversationId, role: 'assistant', content: fullContent, timestamp: new Date().toISOString() };
         setMessages((prev) => [...prev, assistantMsg]);
         if (currentUser) { await saveUserMessage(currentUser.uid, activeConversationId, userMsg); await saveUserMessage(currentUser.uid, activeConversationId, assistantMsg); }
-        voiceService.speak(reply, lang);
+        setIsSpeakingResponse(true);
+        voiceService.speak(reply, lang, () => setIsSpeakingResponse(false));
         setLastBrowserSite(null);
         setIsLoading(false);
         return;
@@ -362,7 +552,8 @@ export function App() {
       }
 
       if (isVoiceActive || isAccessibleMode || voiceService.getSettings().autoReadResponses) {
-        voiceService.speak(assistantMsg.content, currentLanguage.code);
+        setIsSpeakingResponse(true);
+        voiceService.speak(assistantMsg.content, currentLanguage.code, () => setIsSpeakingResponse(false));
       }
 
       // Refresh pending actions / incidents
@@ -379,7 +570,8 @@ export function App() {
       };
       setMessages((prev) => [...prev, errorMsg]);
       if (isVoiceActive || isAccessibleMode || voiceService.getSettings().autoReadResponses) {
-        voiceService.speak(errorMsg.content, currentLanguage.code);
+        setIsSpeakingResponse(true);
+        voiceService.speak(errorMsg.content, currentLanguage.code, () => setIsSpeakingResponse(false));
       }
       if (currentUser) {
         await saveUserMessage(currentUser.uid, activeConversationId, errorMsg);
@@ -460,15 +652,25 @@ export function App() {
   };
 
   const handleToggleRecording = () => {
+    if (isSpeakingResponse) {
+      voiceService.stopSpeaking();
+      setIsSpeakingResponse(false);
+    }
+
     if (isRecording) {
       voiceService.stopListening();
       setIsRecording(false);
     } else {
+      setLiveTranscript('');
       setIsRecording(true);
       voiceService.startListening(
         currentLanguage.code,
-        (transcript) => {
-          if (transcript.trim()) {
+        (transcript, isFinal) => {
+          if (!transcript.trim()) return;
+
+          setLiveTranscript(transcript);
+
+          if (isFinal) {
             setIsRecording(false);
             const lower = transcript.toLowerCase();
             const pending = pendingActions.find((a) => a.status === 'pending');
@@ -507,7 +709,8 @@ export function App() {
   };
 
   const handleSpeakMessage = (text: string) => {
-    voiceService.speak(text, currentLanguage.code);
+    setIsSpeakingResponse(true);
+    voiceService.speak(text, currentLanguage.code, () => setIsSpeakingResponse(false));
   };
 
   const handleLiveTurnAddToChat = (userText: string, assistantText: string) => {
@@ -532,9 +735,28 @@ export function App() {
     }
   };
 
+  const handleSelectStatus = (status: 'listen' | 'understand' | 'respond' | 'help') => {
+    // If clicking the currently active manual status, clear it (toggle off)
+    if (manualHeroStatus === status) {
+      setManualHeroStatus(null);
+    } else {
+      setManualHeroStatus(status);
+    }
+  };
+
+  const currentStatus: 'listen' | 'understand' | 'respond' | 'help' = manualHeroStatus || (isRecording
+    ? 'listen'
+    : isLoading
+    ? 'understand'
+    : isSpeakingResponse
+    ? 'respond'
+    : 'listen');
+
   return (
     <ErrorBoundary>
       <AppLayout
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
         currentLanguage={currentLanguage}
         onSelectLanguage={setLanguage}
         models={models}
@@ -542,8 +764,14 @@ export function App() {
         onSelectModel={setSelectedModel}
         conversations={conversations}
         activeConversationId={activeConversationId}
-        onSelectConversation={handleSelectConversation}
-        onNewConversation={handleNewConversation}
+        onSelectConversation={(id) => {
+          handleSelectConversation(id);
+          setActiveTab('talk');
+        }}
+        onNewConversation={() => {
+          handleNewConversation();
+          setActiveTab('talk');
+        }}
         onDeleteConversation={handleDeleteConversation}
         tools={tools}
         incidents={incidents}
@@ -564,6 +792,8 @@ export function App() {
         onOpenLiveVoiceModal={() => setIsLiveVoiceModalOpen(true)}
         isAccessibleMode={isAccessibleMode}
         onToggleAccessibleMode={handleToggleAccessibleMode}
+        onOpenVoiceGuide={() => setIsVoiceGuideOpen(true)}
+        onStartVoiceModal={() => setIsLiveVoiceModalOpen(true)}
       >
         {isAccessibleMode ? (
           <EasyEchoMode
@@ -573,6 +803,88 @@ export function App() {
             isRecording={isRecording}
             onToggleRecording={handleToggleRecording}
             onExitAccessibleMode={handleToggleAccessibleMode}
+          />
+        ) : activeTab === 'home' ? (
+          <EchoSphereMainView
+            onStartVoice={handleToggleRecording}
+            isListening={isRecording}
+            isSpeaking={isSpeakingResponse || isLoading}
+            activeStatus={currentStatus}
+            transcript={liveTranscript}
+            onSelectStatus={handleSelectStatus}
+            onSelectGuideBot={(bot) => {
+              setActiveCompanionBot(bot);
+              setSystemRole(bot.role);
+              setActiveTab('guidebots');
+            }}
+            onExploreAllGuideBots={() => {
+              setActiveCompanionBot(null);
+              setActiveTab('guidebots');
+            }}
+            onSelectActionChip={(chip) => {
+              setActiveTab('talk');
+              handleSendMessage(chip.prompt);
+            }}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onSelectGuideBotsTab={() => {
+              setActiveCompanionBot(null);
+              setActiveTab('guidebots');
+            }}
+          />
+        ) : activeTab === 'guidebots' ? (
+          activeCompanionBot ? (
+            <GuideBotCompanionView
+              bot={activeCompanionBot}
+              onBack={() => setActiveCompanionBot(null)}
+              onStartVoiceWithBot={(bot, prompt) => {
+                setSystemRole(bot.role);
+                setActiveTab('talk');
+                if (prompt) {
+                  handleSendMessage(prompt);
+                } else {
+                  handleToggleRecording();
+                }
+              }}
+              onOpenWebReader={(siteId) => {
+                webReaderService.openWebsite(siteId);
+                setIsWebReaderOpen(true);
+              }}
+              onOpenLocation={() => setIsDeviceHubOpen(true)}
+            />
+          ) : (
+            <GuideBotsDirectory
+              selectedRole={systemRole}
+              onSelectBot={(bot) => {
+                setActiveCompanionBot(bot);
+                setSystemRole(bot.role);
+              }}
+              onBackToHome={() => setActiveTab('home')}
+              onStartVoice={handleToggleRecording}
+              onStartVoiceWithPrompt={(bot, prompt) => {
+                setSystemRole(bot.role);
+                setActiveTab('talk');
+                if (prompt) {
+                  handleSendMessage(prompt);
+                } else {
+                  handleToggleRecording();
+                }
+              }}
+            />
+          )
+        ) : activeTab === 'history' ? (
+          <ConversationHistoryView
+            conversations={conversations}
+            activeConversationId={activeConversationId}
+            onSelectConversation={(id) => {
+              handleSelectConversation(id);
+              setActiveTab('talk');
+            }}
+            onDeleteConversation={handleDeleteConversation}
+            onBackToHome={() => setActiveTab('home')}
+            onNewConversation={() => {
+              handleNewConversation();
+              setActiveTab('talk');
+            }}
           />
         ) : (
           <HomePage
@@ -595,6 +907,51 @@ export function App() {
       </AppLayout>
 
       <AccessibleCaptions />
+
+      {/* Voice-Controlled Live Web Browser Reader Modal */}
+      {isWebReaderOpen && (
+        <WebReaderModal
+          onClose={() => {
+            setIsWebReaderOpen(false);
+            webReaderService.close();
+          }}
+        />
+      )}
+
+      {/* Device Capabilities & Hardware Hub Modal */}
+      {isDeviceHubOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+          <div className="relative w-full max-w-4xl">
+            <DeviceFeatureHub
+              onOpenLiveCamera={() => {
+                setIsDeviceHubOpen(false);
+                setIsCameraOpen(true);
+              }}
+              onOpenScreenShare={() => {
+                setIsDeviceHubOpen(false);
+                setIsScreenShareOpen(true);
+              }}
+              onClose={() => setIsDeviceHubOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Live Camera Viewfinder Modal */}
+      {isCameraOpen && (
+        <CameraViewfinderModal onClose={() => setIsCameraOpen(false)} />
+      )}
+
+      {/* Live Screen Share Modal */}
+      {isScreenShareOpen && (
+        <ScreenShareModal onClose={() => setIsScreenShareOpen(false)} />
+      )}
+
+      <VoiceBrowserOnboarding
+        isOpen={isVoiceGuideOpen}
+        onClose={() => setIsVoiceGuideOpen(false)}
+        onTryCommand={(cmd) => handleSendMessage(cmd)}
+      />
 
       <CommandPalette
         isOpen={isCommandPaletteOpen}

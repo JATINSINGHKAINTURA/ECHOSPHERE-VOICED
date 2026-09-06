@@ -1,18 +1,17 @@
 import React from 'react';
-import { Radio } from 'lucide-react';
 
-export const Logo: React.FC<{ size?: number; className?: string }> = ({ size = 24, className = '' }) => {
+export const Logo: React.FC<{ size?: number; className?: string }> = ({ size = 28, className = '' }) => {
   return (
-    <div className={`flex items-center gap-2.5 font-semibold tracking-tight text-white ${className}`}>
-      <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 text-white shadow-md shadow-blue-500/20">
-        <Radio size={size - 4} className="animate-pulse" />
+    <div className={`flex items-center gap-2.5 font-bold tracking-tight text-white select-none ${className}`}>
+      {/* EchoSphere Concentric Golden Rings Icon */}
+      <div className="relative flex items-center justify-center w-8 h-8 rounded-full border-2 border-[#f4d06f] bg-[#1a1f2d] shadow-[0_0_12px_rgba(244,208,111,0.3)]">
+        <div className="w-4 h-4 rounded-full border-2 border-[#ffeecb]/80 flex items-center justify-center">
+          <div className="w-1.5 h-1.5 rounded-full bg-[#f4d06f] shadow-[0_0_6px_#f4d06f]" />
+        </div>
       </div>
       <div className="flex flex-col">
-        <span className="text-base font-bold tracking-tight text-zinc-100 flex items-center gap-1.5">
+        <span className="text-lg font-bold tracking-tight text-white font-headline">
           EchoSphere
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-mono font-medium">
-            AGORA
-          </span>
         </span>
       </div>
     </div>

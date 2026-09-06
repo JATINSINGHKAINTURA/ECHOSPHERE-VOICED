@@ -2,16 +2,29 @@
 
 :root {
   color-scheme: dark;
+  --color-surface: #0e1320;
+  --color-surface-dim: #0b101d;
+  --color-surface-container: #1a1f2d;
+  --color-surface-container-low: #161b29;
+  --color-primary: #ffeecb;
+  --color-primary-container: #f4d06f;
+  --color-amber-glow: rgba(244, 208, 111, 0.35);
+  --color-on-surface: #dee2f5;
+  --color-outline: #99907e;
 }
 
 body {
   margin: 0;
   padding: 0;
-  background-color: #090a0c;
-  color: #f4f4f5;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  overflow: hidden;
+  background-color: #0b101d;
+  color: #dee2f5;
+  font-family: 'Source Sans 3', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, .font-headline {
+  font-family: 'Atkinson Hyperlegible', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 * {
@@ -29,93 +42,79 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(244, 208, 111, 0.15);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(244, 208, 111, 0.3);
 }
 
-/* --- EchoSphere Voice-First Accessibility --- */
-:root {
-  --voice-primary: #3b82f6;
-  --voice-accent: #06b6d4;
-  --accessible-bg: #0a0a0f;
-  --accessible-text: #ffffff;
+/* Glowing orb keyframe animations */
+@keyframes orb-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 40px rgba(244, 208, 111, 0.25), inset 0 0 30px rgba(255, 238, 203, 0.4);
+  }
+  50% {
+    transform: scale(1.03);
+    box-shadow: 0 0 65px rgba(244, 208, 111, 0.4), inset 0 0 45px rgba(255, 238, 203, 0.6);
+  }
 }
 
-/* Larger touch targets for elderly/disabled - WCAG 2.5.5 */
-button, [role="button"], a {
-  min-height: 44px;
-  min-width: 44px;
+@keyframes wave-bounce {
+  0%, 100% {
+    height: 14px;
+  }
+  50% {
+    height: 38px;
+  }
 }
 
-/* Voice-first prominent mic button */
-.voice-mic-btn {
-  min-height: 56px !important;
-  min-width: 56px !important;
-  border-radius: 9999px !important;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-  transition: all 0.2s ease;
-}
-.voice-mic-btn:active {
-  transform: scale(0.96);
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.5);
-}
-.voice-mic-btn.listening {
-  animation: pulse-voice 1.5s infinite;
-  background: #ef4444 !important;
-  color: white !important;
-}
-@keyframes pulse-voice {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-  50% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+.animate-orb-pulse {
+  animation: orb-pulse 4s ease-in-out infinite;
 }
 
-/* Clear focus indicators for keyboard navigation */
+.amber-glow-btn {
+  background: linear-gradient(135deg, #ffe08f 0%, #f4d06f 50%, #e6c363 100%);
+  color: #241a00;
+  box-shadow: 0 0 24px rgba(244, 208, 111, 0.3);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.amber-glow-btn:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 0 35px rgba(244, 208, 111, 0.5);
+}
+
+.amber-glow-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Glassmorphism card surfaces */
+.glass-panel {
+  background: rgba(18, 26, 43, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-panel-hover {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-panel-hover:hover {
+  background: rgba(26, 35, 56, 0.8);
+  border-color: rgba(244, 208, 111, 0.3);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4), 0 0 20px rgba(244, 208, 111, 0.15);
+}
+
+/* Clear focus indicators for accessibility */
 *:focus-visible {
-  outline: 3px solid #3b82f6 !important;
-  outline-offset: 2px !important;
-  border-radius: 4px;
-}
-
-/* Accessible mode - larger text, high contrast */
-.accessible-mode {
-  font-size: 18px;
-  line-height: 1.7;
-}
-.accessible-mode button {
-  font-size: 16px;
-  padding: 12px 20px;
-  font-weight: 600;
-}
-.accessible-mode h1, .accessible-mode h2, .accessible-mode h3 {
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-/* Voice feedback toast */
-.voice-feedback {
-  position: fixed;
-  bottom: 100px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0,0,0,0.85);
-  color: white;
-  padding: 12px 24px;
-  border-radius: 24px;
-  font-size: 16px;
-  font-weight: 500;
-  z-index: 1000;
-  backdrop-filter: blur(8px);
-}
-
-/* Responsive: stack on mobile */
-@media (max-width: 768px) {
-  .app-shell { flex-direction: column; }
-  .main-shell { padding: 12px; }
-  button { min-height: 48px; }
+  outline: 2px solid #f4d06f !important;
+  outline-offset: 3px !important;
+  border-radius: 6px;
 }
 
 /* Reduced motion respect */
@@ -124,15 +123,4 @@ button, [role="button"], a {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/* Senior-friendly easy echo mode overrides */
-.easy-echo-mode {
-  --easy-bg: #fafafb;
-  --easy-text: #18181b;
-}
-.easy-echo-mode .chat-bubble {
-  font-size: 18px;
-  line-height: 1.6;
-  padding: 16px 20px;
 }

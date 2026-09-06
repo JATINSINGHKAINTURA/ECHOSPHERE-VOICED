@@ -1,5 +1,5 @@
 import React, { type ReactNode } from 'react';
-import { Header } from './header.js';
+import { Header, type EchoNavTab } from './header.js';
 import { Sidebar } from '../sidebar/sidebar.js';
 import { ToolsPanel } from '../tools/toolspanel.js';
 import { OfflineBanner } from '../common/offlinebanner.js';
@@ -11,6 +11,8 @@ import type { User } from 'firebase/auth';
 
 interface AppLayoutProps {
   children: ReactNode;
+  activeTab: EchoNavTab;
+  onSelectTab: (tab: EchoNavTab) => void;
   currentLanguage: Language;
   onSelectLanguage: (lang: Language) => void;
   models: ModelInfo[];
@@ -41,10 +43,13 @@ interface AppLayoutProps {
   isAccessibleMode?: boolean;
   onToggleAccessibleMode?: () => void;
   onOpenVoiceGuide?: () => void;
+  onStartVoiceModal?: () => void;
 }
 
 export const AppLayout: React.FC<AppLayoutProps> = ({
   children,
+  activeTab,
+  onSelectTab,
   currentLanguage,
   onSelectLanguage,
   models,
@@ -75,11 +80,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   isAccessibleMode,
   onToggleAccessibleMode,
   onOpenVoiceGuide,
+  onStartVoiceModal,
 }) => {
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#080d19] text-zinc-100 font-sans">
       <OfflineBanner />
       <Header
+        activeTab={activeTab}
+        onSelectTab={onSelectTab}
         currentLanguage={currentLanguage}
         onSelectLanguage={onSelectLanguage}
         models={models}
@@ -97,20 +105,26 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         isAccessibleMode={isAccessibleMode}
         onToggleAccessibleMode={onToggleAccessibleMode}
         onOpenVoiceGuide={onOpenVoiceGuide}
+        onStartVoiceModal={onStartVoiceModal}
       />
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          conversations={conversations}
-          activeConversationId={activeConversationId}
-          onSelectConversation={onSelectConversation}
-          onNewConversation={onNewConversation}
-          onDeleteConversation={onDeleteConversation}
-          currentUser={currentUser}
-          onOpenTranscribeModal={onOpenTranscribeModal}
-          onOpenLiveVoiceModal={onOpenLiveVoiceModal}
-        />
-        <main className="flex-1 flex overflow-hidden">{children}</main>
-        {showTools && !isAccessibleMode && (
+        {/* Only show side navigation panel when on 'talk' tab and not in accessible mode */}
+        {activeTab === 'talk' && !isAccessibleMode && (
+          <Sidebar
+            conversations={conversations}
+            activeConversationId={activeConversationId}
+            onSelectConversation={onSelectConversation}
+            onNewConversation={onNewConversation}
+            onDeleteConversation={onDeleteConversation}
+            currentUser={currentUser}
+            onOpenTranscribeModal={onOpenTranscribeModal}
+            onOpenLiveVoiceModal={onOpenLiveVoiceModal}
+          />
+        )}
+        <main className="flex-1 flex flex-col overflow-hidden relative">
+          {children}
+        </main>
+        {activeTab === 'talk' && showTools && !isAccessibleMode && (
           <ToolsPanel
             tools={tools}
             incidents={incidents}

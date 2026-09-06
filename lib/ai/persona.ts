@@ -1,21 +1,21 @@
 export const ECHOSPHERE_SYSTEM_PROMPT = `
-You are EchoSphere, a voice-first conversational AI and engineering operations copilot.
-You listen to developer requests, reason clearly, and perform actions across Jira, GitHub, and Notion.
-You communicate concisely and naturally, ideal for real-time voice and text interaction.
-When users ask you to create tickets, file issues, summarize incidents, or update documentation,
-you describe the action taken and present clear confirmation.
+You are EchoSphere, a reliable, accessible voice-first AI agent designed for all users, including elderly users, children, and people with disabilities.
+You speak clearly, calmly, and empathetically.
+If the user speaks or asks to speak in Hindi (e.g. "Hindi mein baat karo"), respond naturally in fluent Hindi (Devanagari script).
+If the user asks to speak in English (e.g. "Speak in English"), respond in clear English.
+Keep responses concise, conversational, and direct for audio text-to-speech.
+When users ask you to open websites, navigate, or manage tasks, describe the action clearly.
 `.trim();
 
-// Navigator persona: greeting + step-by-step guidance intent.
-// Voice-optimized copy: short sentences, no markdown, senior-friendly.
+// Navigator persona: greeting + language switching + step-by-step guidance intent + browser navigation.
 
 const GREETING_PATTERNS = [
-  /(hi+|hii+|hello+|helo|hey+|yo|namaste|namaskar|namaskaar)/,
-  /good\s?(morning|afternoon|evening|day)/,
-  /how are you/,
-  /how r u/,
-  /kaise ho/,
-  /^(hi|hello|hey|namaste)/,
+  /\b(hi+|hii+|hello+|helo|hey+|yo|namaste|namaskar|namaskaar)\b/i,
+  /\bgood\s?(morning|afternoon|evening|day)\b/i,
+  /\bhow are you\b/i,
+  /\bhow r u\b/i,
+  /\bkaise ho\b/i,
+  /^(hi|hello|hey|namaste)/i,
   /नमस्ते/,
   /हेलो/,
   /कैसे हो/,
@@ -23,35 +23,58 @@ const GREETING_PATTERNS = [
 ];
 
 const NAVIGATOR_PATTERNS = [
-  /help me navigate/,
-  /navigate/,
-  /guide me/,
-  /i am lost/,
-  /i'?m lost/,
-  /where is/,
-  /where.*gate/,
-  /how do i (go|get|reach|find)/,
-  /give me directions/,
-  /directions to/,
-  /rasta/,
+  /\bhelp me navigate\b/i,
+  /\bnavigate\b/i,
+  /\bguide me\b/i,
+  /\bi am lost\b/i,
+  /\bi'?m lost\b/i,
+  /\bwhere is\b/i,
+  /\bwhere.*gate\b/i,
+  /\bhow do i (go|get|reach|find)\b/i,
+  /\bgive me directions\b/i,
+  /\bdirections to\b/i,
+  /\brasta\b/i,
   /रास्ता/,
   /कहाँ/,
   /मुझे रास्ता/,
 ];
 
-const BROWSER_PATTERNS = [
-  /open\s+(youtube|google|wikipedia|github|notion|facebook|twitter|instagram|netflix|spotify|maps|gmail)/,
-  /search\s+(for\s+)?(.+)\s+on\s+(youtube|google)/,
-  /play\s+(.+)\s+on\s+youtube/,
-  /go\s+to\s+(https?:\/\/\S+|www\.\S+|\S+\.com)/,
-  /open\s+(a\s+)?new\s+tab/,
-  /play\s+(video|music|song)/,
-  /search\s+youtube/,
-  /youtube.*play/,
-  /open\s+youtube/,
+const HINDI_SWITCH_PATTERNS = [
+  /\bhindi\s+(?:mein|me|mai)\s+(?:baat|bolo|karo|boli)\b/i,
+  /\b(?:speak|talk|switch)\s+(?:in|to)?\s*hindi\b/i,
+  /\b(?:talk|speak)\s+hindi\b/i,
+  /\bहिंदी\s*(?:में)?\s*(?:बात|बोलो|करो|बताओ)\b/i,
+  /\bhindi\s+bolo\b/i,
+];
+
+const ENGLISH_SWITCH_PATTERNS = [
+  /\benglish\s+(?:mein|me|mai)\s+(?:baat|bolo|karo)\b/i,
+  /\b(?:speak|talk|switch)\s+(?:in|to)?\s*english\b/i,
+  /\b(?:talk|speak)\s+english\b/i,
+  /\bअंग्रेजी\s*(?:में)?\s*(?:बात|बोलो|करो)\b/i,
+  /\benglish\s+please\b/i,
 ];
 
 const norm = (p: string) => p.toLowerCase().trim();
+
+export function isLanguageSwitchRequest(prompt: string): { isSwitch: boolean; lang?: 'hi-IN' | 'en-US'; reply?: string } {
+  const t = norm(prompt);
+  if (HINDI_SWITCH_PATTERNS.some((re) => re.test(t))) {
+    return {
+      isSwitch: true,
+      lang: 'hi-IN',
+      reply: 'नमस्ते! अब मैं आपसे हिंदी में बात करूंगा। बताइए, मैं आपकी क्या सहायता कर सकता हूँ?',
+    };
+  }
+  if (ENGLISH_SWITCH_PATTERNS.some((re) => re.test(t))) {
+    return {
+      isSwitch: true,
+      lang: 'en-US',
+      reply: 'Sure! I am now speaking in English. How can I assist you today?',
+    };
+  }
+  return { isSwitch: false };
+}
 
 export function isGreeting(prompt: string): boolean {
   const t = norm(prompt);
@@ -64,51 +87,101 @@ export function isNavigator(prompt: string): boolean {
 }
 
 export function isBrowserRequest(prompt: string): boolean {
-  return BROWSER_PATTERNS.some((re) => re.test(norm(prompt)));
+  const t = norm(prompt);
+  if (isLanguageSwitchRequest(t).isSwitch) return false;
+
+  const browserTriggers = [
+    /\bopen\s+([a-z0-9.\s-]+)/i,
+    /\bgo\s+to\s+([a-z0-9.\s-]+)/i,
+    /\blaunch\s+([a-z0-9.\s-]+)/i,
+    /\bvisit\s+([a-z0-9.\s-]+)/i,
+    /\bplay\s+(.+?)(?:\s+on\s+youtube|$)/i,
+    /\bsearch\s+(?:for\s+)?(.+?)\s+on\s+(youtube|google)/i,
+    /([a-z0-9\s-]+)\s+(?:kholo|khol do|chalao|open karo|kholiye)/i,
+    /(?:वेबसाइट|साइट)?\s*([a-z0-9\s-]+)\s*(?:खोलो|खोलिए)/i,
+  ];
+
+  return browserTriggers.some((re) => re.test(t));
 }
 
 export function getBrowserIntent(prompt: string): { site: string; query: string; needsClarification: boolean } | null {
   const t = norm(prompt);
-  if (/open\s+youtube/.test(t) && !/play/.test(t) && !/search/.test(t)) {
-    if (/play\s+(a\s+)?video/.test(t)) return { site: 'youtube', query: '', needsClarification: true };
+
+  if (/youtube/i.test(t)) {
+    if (/play\s+(?:a\s+)?(?:video|song|music)$/i.test(t) || t === 'open youtube and play a video') {
+      return { site: 'youtube', query: '', needsClarification: true };
+    }
+    const playOnYT = t.match(/play\s+(.+?)(?:\s+on\s+youtube|$)/i);
+    if (playOnYT && !/^(a\s+)?(video|song|music)$/i.test(playOnYT[1].trim())) {
+      const q = playOnYT[1].trim().replace(/\s+on\s+youtube$/i, '').trim();
+      return { site: 'youtube', query: q, needsClarification: false };
+    }
+    const searchYT = t.match(/search\s+(?:for\s+)?(.+?)(?:\s+on\s+youtube|$)/i);
+    if (searchYT) {
+      return { site: 'youtube', query: searchYT[1].trim().replace(/\s+on\s+youtube$/i, ''), needsClarification: false };
+    }
     return { site: 'youtube', query: '', needsClarification: false };
   }
-  const playMatch = t.match(/play\s+(.+)\s+on\s+youtube/);
-  if (playMatch) return { site: 'youtube', query: playMatch[1].trim(), needsClarification: false };
-  const searchYT = t.match(/search\s+(?:for\s+)?(.+?)\s+on\s+youtube/);
-  if (searchYT) return { site: 'youtube', query: searchYT[1].trim(), needsClarification: false };
-  if (/open\s+google/.test(t)) { const q = t.match(/search\s+(?:for\s+)?(.+)/); return { site: 'google', query: q ? q[1].trim() : '', needsClarification: false }; }
-  const goMatch = t.match(/go\s+to\s+(\S+)/);
-  if (goMatch) return { site: goMatch[1], query: '', needsClarification: false };
+
+  if (/open\s+google/i.test(t) || /^google$/i.test(t) || /google\s+search/i.test(t)) {
+    const q = t.match(/search\s+(?:for\s+)?(.+)/i);
+    return { site: 'google', query: q ? q[1].trim() : '', needsClarification: false };
+  }
+
+  const hindiMatch = t.match(/([a-z0-9\s]+)\s+(?:kholo|khol do|chalao|open karo|kholiye)/i);
+  if (hindiMatch) {
+    const rawSite = hindiMatch[1].replace(/\b(website|site|app|page)\b/gi, '').trim();
+    if (rawSite) return { site: rawSite, query: '', needsClarification: false };
+  }
+
+  const openMatch = t.match(/\bopen\s+(?:website\s+|web\s+|app\s+|page\s+|tab\s+)?([a-z0-9.\s-]+?)(?:\s+in\s+a?\s*new\s*tab|\s+please|\.|\!|$)/i);
+  if (openMatch) {
+    const rawSite = openMatch[1].trim();
+    if (rawSite && !['the', 'a', 'an', 'settings', 'mic', 'camera', 'chat'].includes(rawSite)) {
+      return { site: rawSite, query: '', needsClarification: false };
+    }
+  }
+
+  const goMatch = t.match(/\b(?:go\s+to|launch|visit)\s+([a-z0-9.\s-]+?)(?:\s+in\s+a?\s*new\s*tab|\s+please|\.|\!|$)/i);
+  if (goMatch) {
+    return { site: goMatch[1].trim(), query: '', needsClarification: false };
+  }
+
   return null;
 }
 
 export function greetingReply(language = 'en'): string {
-  if (language === 'hi')
+  if (language === 'hi' || language.startsWith('hi'))
     return 'नमस्ते! मैं एको हूँ, आपका सहायक। धीरे-धीरे बताइए, आपको क्या चाहिए?';
   if (language === 'es')
     return '¡Hola! Soy Echo, tu ayudante. Dime despacio qué necesitas y te guiaré paso a paso.';
-  return "Hello! I'm Echo, your friendly navigator. Tell me what you need, slowly and clearly. I can guide you step by step, report a problem, or look up information for you.";
+  return "Hello! I'm Echo, your friendly navigator. Tell me what you need, slowly and clearly. I can open websites, guide you step by step, or look up information for you.";
 }
 
 export function navigatorReply(language = 'en'): string {
-  if (language === 'hi')
+  if (language === 'hi' || language.startsWith('hi'))
     return 'बिलकुल, मैं आपको रास्ता बताऊंगा। पहले बताइए, आप अभी कहाँ हैं?';
   if (language === 'es')
     return 'Claro, te guiaré. Dime dónde estás ahora y a dónde quieres ir, una cosa a la vez.';
-  return 'Of course, I will guide you. First tell me where you are right now. Then tell me where you want to go. One step at a time. For example: I am at Gate 2 and I want to reach Gate 4.';
+  return 'Of course, I will guide you. First tell me where you are right now, and where you want to reach. One step at a time.';
 }
 
 export function browserClarificationReply(site: string, language = 'en'): string {
-  if (language === 'hi') return `जरूर। आप ${site} पर क्या देखना चाहते हैं?`;
-  return `Sure. What would you like to watch on ${site}? Please tell me the topic or name.`;
+  if (language === 'hi' || language.startsWith('hi')) return `जरूर। आप ${site} पर क्या देखना या सुनना चाहते हैं?`;
+  return `Sure. What would you like to watch on ${site}? Please tell me the topic or title.`;
 }
 
 export function browserActionReply(site: string, query: string, language = 'en'): string {
+  const cleanTitle = site
+    .split(' ')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+
   if (query) {
-    if (language === 'hi') return `${site} पर "${query}" खोल रहा हूं।`;
-    return `Opening ${site} for "${query}" in a new tab. Enjoy!`;
+    if (language === 'hi' || language.startsWith('hi')) return `${cleanTitle} पर "${query}" खोज रहा हूँ।`;
+    return `Opening ${cleanTitle} for "${query}" in a new tab.`;
   }
-  if (language === 'hi') return `${site} खोल रहा हूं।`;
-  return `Opening ${site} in a new tab.`;
+  if (language === 'hi' || language.startsWith('hi')) return `${cleanTitle} खोल रहा हूँ।`;
+  return `Opening ${cleanTitle} in a new browser tab.`;
 }
+

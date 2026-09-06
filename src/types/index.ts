@@ -3,14 +3,31 @@ export * from './tools.js';
 
 export type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'interrupted';
 
+export type VoiceStyleId =
+  | 'deep-male'
+  | 'natural-male'
+  | 'energetic-male'
+  | 'soft-female'
+  | 'natural-female';
+
+export interface VoiceStyleConfig {
+  id: VoiceStyleId;
+  label: string;
+  gender: 'male' | 'female' | 'auto';
+  pitch: number;
+  rate: number;
+  description: string;
+}
+
 export interface VoiceSettings {
-  speechRate: number; // 0.6 - 1.4, 0.85 ideal for seniors
+  speechRate: number; // 0.6 - 1.4
   speechPitch: number; // 0.7 - 1.3
   speechVolume: number; // 0.1 - 1.0
   autoReadResponses: boolean; // auto-narrate answers for low-vision/elderly
   preferredVoice?: string;
   voiceGender?: 'male' | 'female' | 'auto'; // selectable voice type
-  voiceStyle?: 'natural' | 'clear' | 'warm' | 'energetic'; // natural voice styles
+  voiceStyle?: string; // natural voice styles
+  selectedVoiceStyle: VoiceStyleId; // specific voice style selection
 }
 
 export interface VoiceProfile {

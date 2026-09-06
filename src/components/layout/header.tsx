@@ -2,12 +2,16 @@ import React from 'react';
 import { Logo } from '../common/logo.js';
 import { LanguageSelector } from '../language/languageselector.js';
 import { ModelSelector } from '../models/modelselector.js';
-import { Command, Settings, PanelRight, Radio, LogIn, LogOut, Database, User as UserIcon, Sparkles, HelpCircle } from 'lucide-react';
+import { Mic, Radio, LogIn, LogOut, Database, Sparkles, HelpCircle, Accessibility } from 'lucide-react';
 import type { Language } from '../../data/languages.js';
 import type { ModelInfo } from '../../types/index.js';
 import type { User } from 'firebase/auth';
 
+export type EchoNavTab = 'home' | 'talk' | 'guidebots' | 'history' | 'settings';
+
 interface HeaderProps {
+  activeTab: EchoNavTab;
+  onSelectTab: (tab: EchoNavTab) => void;
   currentLanguage: Language;
   onSelectLanguage: (lang: Language) => void;
   models: ModelInfo[];
@@ -25,9 +29,12 @@ interface HeaderProps {
   isAccessibleMode?: boolean;
   onToggleAccessibleMode?: () => void;
   onOpenVoiceGuide?: () => void;
+  onStartVoiceModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  activeTab,
+  onSelectTab,
   currentLanguage,
   onSelectLanguage,
   models,
@@ -45,57 +52,103 @@ export const Header: React.FC<HeaderProps> = ({
   isAccessibleMode,
   onToggleAccessibleMode,
   onOpenVoiceGuide,
+  onStartVoiceModal,
 }) => {
+  const navTabs: { id: EchoNavTab; label: string }[] = [
+    { id: 'home', label: 'Home' },
+    { id: 'talk', label: 'Talk' },
+    { id: 'guidebots', label: 'GuideBots' },
+    { id: 'history', label: 'History' },
+    { id: 'settings', label: 'Settings' },
+  ];
+
   return (
-    <header className="h-14 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md px-4 flex items-center justify-between z-30 shrink-0">
-      <div className="flex items-center gap-6">
-        <Logo />
+    <header className="h-16 border-b border-white/[0.08] bg-[#070c18]/95 backdrop-blur-xl px-4 sm:px-6 lg:px-8 flex items-center justify-between z-30 shrink-0 select-none shadow-[0_4px_30px_rgba(0,0,0,0.5)]">
+      {/* 1. Left: Brand Logo */}
+      <div className="flex items-center gap-4">
         <button
-          onClick={onOpenCommandPalette}
-          className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors"
+          onClick={() => onSelectTab('home')}
+          type="button"
+          className="focus:outline-none cursor-pointer"
         >
-          <Command size={13} />
-          <span>Quick command</span>
-          <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] text-zinc-400 font-mono">
-            ⌘K
-          </kbd>
+          <Logo />
         </button>
       </div>
 
-      <div className="flex items-center gap-3">
-        {/* Easy Echo Senior / Accessible Mode Toggle */}
-        <button
-          onClick={onToggleAccessibleMode}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
-            isAccessibleMode
-              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/20'
-              : 'bg-zinc-900 hover:bg-zinc-800 text-emerald-400 border-emerald-500/30'
-          }`}
-          title="Switch to Easy Echo Mode for seniors, kids & clear speech"
-        >
-          <Sparkles size={13} className={isAccessibleMode ? 'animate-spin' : ''} />
-          <span>{isAccessibleMode ? 'Easy Echo: ON' : 'Easy Mode'}</span>
-        </button>
+      {/* 2. Center: Navigation Tabs matching guidebot fe.png */}
+      <nav className="hidden md:flex items-center gap-2 lg:gap-6">
+        {navTabs.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => {
+                if (tab.id === 'settings') {
+                  onOpenSettings();
+                } else {
+                  onSelectTab(tab.id);
+                }
+              }}
+              type="button"
+              className={`relative px-3 py-2 text-sm sm:text-base font-semibold transition-all duration-200 cursor-pointer ${
+                isActive
+                  ? 'text-white font-bold'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <span>{tab.label}</span>
+              {isActive && (
+                <span className="absolute -bottom-1 left-2 right-2 h-0.5 bg-[#f4d06f] rounded-full shadow-[0_0_12px_rgba(244,208,111,0.9)] animate-fade-in" />
+              )}
+            </button>
+          );
+        })}
+      </nav>
 
-        {/* Agora Voice Toggle */}
-        <button
-          onClick={onToggleVoice}
-          className={`hidden sm:flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-            isVoiceActive
-              ? 'bg-red-500/20 text-red-400 border border-red-500/40 shadow-sm shadow-red-500/20'
-              : 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-500/20'
+      {/* 3. Right: Accessibility badge + Mic Action + Extras */}
+      <div className="flex items-center gap-2.5 sm:gap-3">
+        {/* Simpler Internet / Accessibility Badge */}
+        <div
+          onClick={onToggleAccessibleMode}
+          role="button"
+          tabIndex={0}
+          className={`hidden lg:flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium border transition-all cursor-pointer ${
+            isAccessibleMode
+              ? 'bg-[#f4d06f] text-[#241a00] border-[#ffeecb] shadow-[0_0_15px_rgba(244,208,111,0.4)] font-bold'
+              : 'bg-[#101728] text-zinc-300 border-white/10 hover:border-white/25 hover:text-white'
           }`}
+          title="Toggle Easy Echo Mode for simplified speech and larger touch targets"
         >
-          <Radio size={14} className={isVoiceActive ? 'animate-pulse' : ''} />
-          <span>{isVoiceActive ? 'End Call' : 'Voice Connect'}</span>
+          <div className="w-4 h-4 rounded-full bg-[#f4d06f] text-[#241a00] flex items-center justify-center text-[10px]">
+            <Accessibility size={11} className="stroke-[2.5]" />
+          </div>
+          <span className="text-[11px] tracking-tight font-semibold">A simpler internet for everyone</span>
+        </div>
+
+        {/* Circular Mic Button */}
+        <button
+          onClick={() => {
+            if (onStartVoiceModal) {
+              onStartVoiceModal();
+            } else {
+              onSelectTab('talk');
+            }
+          }}
+          type="button"
+          className="w-10 h-10 rounded-full bg-[#12192a] hover:bg-[#f4d06f] text-[#f4d06f] hover:text-[#241a00] border border-[#f4d06f]/40 hover:border-[#f4d06f] shadow-[0_0_15px_rgba(244,208,111,0.2)] flex items-center justify-center transition-all duration-200 cursor-pointer"
+          title="Start Voice Conversation"
+        >
+          <Mic size={18} />
         </button>
 
         {/* Model Selection */}
-        <ModelSelector
-          models={models}
-          selectedModel={selectedModel}
-          onSelectModel={onSelectModel}
-        />
+        <div className="hidden xl:block">
+          <ModelSelector
+            models={models}
+            selectedModel={selectedModel}
+            onSelectModel={onSelectModel}
+          />
+        </div>
 
         {/* Language Selection */}
         <LanguageSelector
@@ -103,28 +156,28 @@ export const Header: React.FC<HeaderProps> = ({
           onSelectLanguage={onSelectLanguage}
         />
 
-        {/* Firebase Authentication Button / Profile */}
+        {/* User Auth Profile / Google Sign-In */}
         {currentUser ? (
-          <div className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800">
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#161b29] border border-white/10">
             {currentUser.photoURL ? (
               <img
                 src={currentUser.photoURL}
                 alt={currentUser.displayName || 'User'}
-                className="w-6 h-6 rounded-full border border-emerald-500/40"
+                className="w-6 h-6 rounded-full border border-[#f4d06f]/40"
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-[10px] font-bold">
+              <div className="w-6 h-6 rounded-full bg-[#f4d06f] flex items-center justify-center text-[#241a00] text-[10px] font-bold">
                 {currentUser.displayName ? currentUser.displayName[0].toUpperCase() : 'U'}
               </div>
             )}
-            <div className="hidden lg:flex flex-col text-left">
-              <span className="text-xs font-medium text-zinc-200 line-clamp-1 max-w-[100px]">
+            <div className="hidden 2xl:flex flex-col text-left">
+              <span className="text-xs font-semibold text-zinc-200 line-clamp-1 max-w-[90px]">
                 {currentUser.displayName || 'User'}
               </span>
-              <span className="text-[10px] text-emerald-400 flex items-center gap-1">
-                <Database size={9} />
-                Firestore Synced
+              <span className="text-[9px] text-[#f4d06f] flex items-center gap-0.5">
+                <Database size={8} />
+                Synced
               </span>
             </div>
             <button
@@ -139,43 +192,14 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onSignInWithGoogle}
             disabled={isSigningIn}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/60 text-xs font-medium transition-all shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#161b29] hover:bg-[#1f273b] text-zinc-200 border border-white/10 text-xs font-semibold transition-all"
           >
-            <LogIn size={13} className="text-amber-400" />
-            <span>{isSigningIn ? 'Connecting...' : 'Google Sign-In'}</span>
+            <LogIn size={13} className="text-[#f4d06f]" />
+            <span className="hidden sm:inline">{isSigningIn ? 'Connecting...' : 'Sign In'}</span>
           </button>
         )}
-
-        {/* Voice Commands Guide / Onboarding */}
-        {onOpenVoiceGuide && (
-          <button
-            onClick={onOpenVoiceGuide}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-sky-400 bg-sky-950/40 hover:bg-sky-900/40 border border-sky-800/50 transition-colors shadow-sm"
-            title="Voice Commands Guide for Browser Actions"
-          >
-            <HelpCircle size={14} />
-            <span className="hidden sm:inline">Voice Guide</span>
-          </button>
-        )}
-
-        {/* Settings */}
-        <button
-          onClick={onOpenSettings}
-          className="p-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors"
-          title="Settings"
-        >
-          <Settings size={17} />
-        </button>
-
-        {/* Toggle Right Panel */}
-        <button
-          onClick={onToggleTools}
-          className="p-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors"
-          title="Toggle Tools"
-        >
-          <PanelRight size={17} />
-        </button>
       </div>
     </header>
   );
 };
+
