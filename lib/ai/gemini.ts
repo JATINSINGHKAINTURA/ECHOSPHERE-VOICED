@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { ECHOSPHERE_SYSTEM_PROMPT } from './persona.js';
+import { ECHOSPHERE_SYSTEM_PROMPT, isGreeting, greetingReply, isNavigator, navigatorReply, isBrowserRequest, getBrowserIntent, browserClarificationReply, browserActionReply } from './persona.js';
 
 let aiClient: GoogleGenAI | null = null;
 
@@ -38,6 +38,25 @@ export async function generateChatResponse(
   systemRole = 'copilot',
   useSearchGrounding = false
 ): Promise<ChatResponseResult> {
+  // Voice-first persona: handle greeting/navigator/browser before Gemini for instant, reliable replies
+  const lang = message.match(/[ऀ-ॿ]/) ? 'hi' : 'en';
+  if (isGreeting(message)) {
+    return { text: greetingReply(lang), modelUsed: 'persona-greeting' };
+  }
+  if (isNavigator(message)) {
+    return { text: navigatorReply(lang), modelUsed: 'persona-navigator' };
+  }
+  if (isBrowserRequest(message)) {
+    const intent = getBrowserIntent(message);
+    if (intent && intent.needsClarification) {
+      return { text: browserClarificationReply(intent.site, lang), modelUsed: 'persona-browser-clarify' };
+    }
+    if (intent) {
+      // For browser requests with query, construct voice-friendly reply and let frontend handle window.open via tool
+      return { text: browserActionReply(intent.site, intent.query, lang), modelUsed: 'persona-browser-action' };
+    }
+  }
+
   const client = getGeminiClient();
   const selectedRolePrompt = SYSTEM_ROLES[systemRole] || ECHOSPHERE_SYSTEM_PROMPT;
 

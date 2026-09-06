@@ -4,11 +4,22 @@ export * from './tools.js';
 export type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'interrupted';
 
 export interface VoiceSettings {
-  speechRate: number; // e.g. 0.8 for elderly/slow, 1.0 default
-  speechPitch: number; // 0.8 - 1.2
-  speechVolume: number; // 0.0 - 1.0
+  speechRate: number; // 0.6 - 1.4, 0.85 ideal for seniors
+  speechPitch: number; // 0.7 - 1.3
+  speechVolume: number; // 0.1 - 1.0
   autoReadResponses: boolean; // auto-narrate answers for low-vision/elderly
   preferredVoice?: string;
+  voiceGender?: 'male' | 'female' | 'auto'; // selectable voice type
+  voiceStyle?: 'natural' | 'clear' | 'warm' | 'energetic'; // natural voice styles
+}
+
+export interface VoiceProfile {
+  id: string;
+  name: string;
+  gender: 'male' | 'female';
+  style: string;
+  lang: string;
+  description: string;
 }
 
 export interface AccessibilityPreferences {

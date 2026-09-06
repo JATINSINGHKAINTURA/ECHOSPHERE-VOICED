@@ -35,8 +35,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const updated = { ...settings, speechRate: rate };
     setSettings(updated);
     voiceService.updateSettings({ speechRate: rate });
-    // Quick audio sample so user can hear the pacing
     voiceService.speak('This is how EchoSphere will sound.', 'en-US');
+  };
+
+  const handleVoiceGenderChange = (gender: 'male' | 'female' | 'auto') => {
+    const updated = { ...settings, voiceGender: gender };
+    setSettings(updated);
+    voiceService.updateSettings({ voiceGender: gender });
+    voiceService.speak(gender === 'male' ? 'Male voice selected.' : gender === 'female' ? 'Female voice selected.' : 'Auto voice selected.', 'en-US');
+  };
+
+  const handleVoiceStyleChange = (style: 'natural' | 'clear' | 'warm' | 'energetic') => {
+    const updated = { ...settings, voiceStyle: style };
+    setSettings(updated);
+    voiceService.updateSettings({ voiceStyle: style });
   };
 
   const handleToggleAutoRead = () => {
@@ -113,6 +125,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Voice Type Selection */}
+              <div className="pt-3 border-t border-zinc-800 space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-zinc-300 font-medium">Voice Type</span>
+                  <span className="text-zinc-500 text-[11px]">Male / Female / Auto</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['male', 'female', 'auto'] as const).map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => handleVoiceGenderChange(g)}
+                      className={`px-2 py-2 rounded-lg text-xs font-medium border transition-all capitalize ${settings.voiceGender === g ? 'bg-blue-600 border-blue-500 text-white' : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-300 hover:bg-zinc-700/80'}`}
+                    >
+                      {g === 'auto' ? 'Auto' : g}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {(['natural', 'clear', 'warm', 'energetic'] as const).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => handleVoiceStyleChange(s)}
+                      className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-all capitalize ${settings.voiceStyle === s ? 'bg-cyan-600 border-cyan-500 text-white' : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-300 hover:bg-zinc-700/80'}`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-zinc-500">Voice adapts to Hindi/Marathi etc. automatically. Try different styles!</p>
               </div>
 
               {/* Auto-read responses aloud toggle */}

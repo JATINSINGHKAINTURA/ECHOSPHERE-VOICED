@@ -35,6 +35,8 @@ import {
   executeTool,
 } from './services/toolservice.js';
 import { voiceService } from './services/voiceservice.js';
+import { isBrowserRequest, getBrowserIntent, browserClarificationReply, browserActionReply } from './lib/persona.js';
+import { getSiteUrl, openBrowserTab } from './lib/browserHandler.js';
 import { INITIAL_CONVERSATIONS } from './data/mockchats.js';
 import type { Conversation, Message } from './types/chat.js';
 import type { ModelInfo, IntegrationStatus } from './types/index.js';
@@ -52,6 +54,7 @@ export function App() {
   const [activeConversationId, setActiveConversationId] = useState<string>('conv-welcome');
   const [messages, setMessages] = useState<Message[]>(INITIAL_CONVERSATIONS[0].messages);
   const [isLoading, setIsLoading] = useState(false);
+  const [lastBrowserSite, setLastBrowserSite] = useState<string | null>(null);
 
   // Gemini Models & Features
   const [models, setModels] = useState<ModelInfo[]>([
@@ -280,6 +283,46 @@ export function App() {
 
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
+
+    // Voice-controlled browser navigation
+    const lang = currentLanguage.code;
+    const browserIntent = getBrowserIntent(text);
+    const isBrowser = isBrowserRequest(text);
+    let effectiveSite: string | null = browserIntent?.site || null;
+    let effectiveQuery = browserIntent?.query || '';
+    let needsClarification = browserIntent?.needsClarification || false;
+    if (!isBrowser && lastBrowserSite && text.trim().split(' ').length <= 5 && text.length < 40 && text.length > 2) {
+      effectiveSite = lastBrowserSite;
+      effectiveQuery = text.trim();
+      needsClarification = false;
+    }
+    if (isBrowser || (lastBrowserSite && effectiveSite)) {
+      if (needsClarification) {
+        const reply = browserClarificationReply(effectiveSite || 'youtube', lang);
+        setLastBrowserSite(effectiveSite || 'youtube');
+        const assistantMsg: Message = { id: 'ast-' + Date.now(), conversationId: activeConversationId, role: 'assistant', content: reply, timestamp: new Date().toISOString() };
+        setMessages((prev) => [...prev, assistantMsg]);
+        if (currentUser) { await saveUserMessage(currentUser.uid, activeConversationId, userMsg); await saveUserMessage(currentUser.uid, activeConversationId, assistantMsg); }
+        voiceService.speak(reply, lang);
+        setIsLoading(false);
+        return;
+      }
+      if (effectiveSite) {
+        const url = getSiteUrl(effectiveSite, effectiveQuery);
+        const opened = openBrowserTab(url, effectiveSite);
+        const reply = browserActionReply(effectiveSite, effectiveQuery, lang) + (opened ? '' : ' (Please allow pop-ups.)');
+        const fullContent = reply + " Opened: " + url;
+        const assistantMsg: Message = { id: 'ast-' + Date.now(), conversationId: activeConversationId, role: 'assistant', content: fullContent, timestamp: new Date().toISOString() };
+        setMessages((prev) => [...prev, assistantMsg]);
+        if (currentUser) { await saveUserMessage(currentUser.uid, activeConversationId, userMsg); await saveUserMessage(currentUser.uid, activeConversationId, assistantMsg); }
+        voiceService.speak(reply, lang);
+        setLastBrowserSite(null);
+        setIsLoading(false);
+        return;
+      }
+    } else if (lastBrowserSite && text.length > 5) {
+      setLastBrowserSite(null);
+    }
 
     if (currentUser) {
       await saveUserMessage(currentUser.uid, activeConversationId, userMsg);

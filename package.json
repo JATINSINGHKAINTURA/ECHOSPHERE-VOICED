@@ -1,5 +1,5 @@
 {
-  "name": "agora-ai",
+  "name": "echosphere-voiced",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -38,5 +38,6 @@
     "esbuild@0.28.2": true,
     "protobufjs@7.6.6": true,
     "@google/genai@2.21.0": true
-  }
+  },
+  "description": "EchoSphere Voiced - Voice-first conversational AI for elderly, children and low-literacy users"
 }

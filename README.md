@@ -1,4 +1,4 @@
-# EchoSphere — Voice-First Conversational AI Platform
+# ECHOSPHERE-VOICED — Voice-First Conversational AI Platform
 
 > **Speak • Listen • Understand • Act** — A reliable voice-first AI agent for elderly users, children, disabled users, and people with low digital literacy. Built for the Agora Hackathon.
 
@@ -71,8 +71,8 @@ External: Gemini <-> Jira <-> GitHub <-> Notion <-> Agora RTC
 ## Quick Start
 
 ```bash
-git clone https://github.com/JATINSINGHKAINTURA/AGSDI.git
-cd AGSDI
+git clone https://github.com/JATINSINGHKAINTURA/ECHOSPHERE-VOICED.git
+cd ECHOSPHERE-VOICED
 npm install
 cp .env.example .env   # fill keys (see below)
 npm run dev    # -> http://localhost:5173

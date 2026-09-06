@@ -1,6 +1,7 @@
 import AgoraRTC, { type IAgoraRTCClient, type IMicrophoneAudioTrack } from 'agora-rtc-sdk-ng';
 import { request } from './httpclient.js';
-import type { VoiceState, VoiceSettings, DiagnosticsResult } from '../types/index.js';
+import type { VoiceState, VoiceSettings, DiagnosticsResult, VoiceProfile } from '../types/index.js';
+import { toBCP47 } from '../../lib/voice/locale.js';
 
 export interface AgoraSessionData {
   appId: string;
@@ -11,11 +12,20 @@ export interface AgoraSessionData {
 }
 
 const DEFAULT_SETTINGS: VoiceSettings = {
-  speechRate: 0.85, // Slower, clearer speech ideal for seniors and high comprehensibility
+  speechRate: 0.85,
   speechPitch: 1.0,
   speechVolume: 1.0,
   autoReadResponses: false,
+  voiceGender: 'auto',
+  voiceStyle: 'natural',
 };
+
+export const VOICE_PROFILES: VoiceProfile[] = [
+  { id: 'male-natural', name: 'Male Natural', gender: 'male', style: 'natural', lang: 'en-US', description: 'Warm male voice' },
+  { id: 'female-natural', name: 'Female Natural', gender: 'female', style: 'natural', lang: 'en-US', description: 'Clear female voice' },
+  { id: 'male-clear', name: 'Male Clear', gender: 'male', style: 'clear', lang: 'en-US', description: 'Crisp male voice' },
+  { id: 'female-warm', name: 'Female Warm', gender: 'female', style: 'warm', lang: 'en-US', description: 'Warm female voice' },
+];
 
 class VoiceService {
   private client: IAgoraRTCClient | null = null;
@@ -33,9 +43,20 @@ class VoiceService {
 
   // Voice Settings with LocalStorage persistence
   private settings: VoiceSettings = { ...DEFAULT_SETTINGS };
+  private cachedVoices: SpeechSynthesisVoice[] = [];
 
   constructor() {
     this.loadSettings();
+    this.prewarmVoices();
+  }
+
+  private prewarmVoices() {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const load = () => { this.cachedVoices = window.speechSynthesis.getVoices(); };
+      load();
+      window.speechSynthesis.onvoiceschanged = load;
+      window.speechSynthesis.getVoices();
+    }
   }
 
   private loadSettings() {
@@ -49,6 +70,32 @@ class VoiceService {
     } catch {
       this.settings = { ...DEFAULT_SETTINGS };
     }
+  }
+
+  getAvailableVoices(): SpeechSynthesisVoice[] {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return [];
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length) this.cachedVoices = voices;
+    return this.cachedVoices.length ? this.cachedVoices : voices;
+  }
+
+  getBestVoice(lang: string): SpeechSynthesisVoice | null {
+    const bcp47 = toBCP47(lang);
+    const base = bcp47.split('-')[0].toLowerCase();
+    const voices = this.getAvailableVoices();
+    if (!voices.length) return null;
+    const gender = this.settings.voiceGender || 'auto';
+    let candidates = voices.filter(v => v.lang.toLowerCase() === bcp47.toLowerCase());
+    if (!candidates.length) candidates = voices.filter(v => v.lang.toLowerCase().startsWith(base));
+    if (!candidates.length) candidates = voices.filter(v => v.lang.toLowerCase().startsWith('en'));
+    if (!candidates.length) candidates = voices;
+    if (gender !== 'auto') {
+      const keywords = gender === 'male' ? ['male', 'david', 'mark', 'alex', 'daniel'] : ['female', 'zira', 'susan', 'samantha', 'karen', 'victoria'];
+      const matched = candidates.filter(v => keywords.some(k => v.name.toLowerCase().includes(k)));
+      if (matched.length) return matched[0];
+      if (candidates.length > 1) return gender === 'male' ? candidates[0] : candidates[candidates.length - 1];
+    }
+    return candidates[0] || null;
   }
 
   getSettings(): VoiceSettings {
@@ -211,37 +258,40 @@ class VoiceService {
     }
   }
 
-  // Browser Speech Synthesis (TTS) with rate control, accessibility, and live captions
+  // Enhanced TTS with voice types, chunking, Indian language support, reduced glitches
   speak(text: string, lang = 'en-US', onEnd?: () => void) {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      onEnd?.();
-      return;
-    }
-
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) { onEnd?.(); return; }
     window.speechSynthesis.cancel();
+    // Brief pause to let cancel propagate and reduce glitches
+    setTimeout(() => this.doSpeak(text, lang, onEnd), 50);
+  }
+
+  private doSpeak(text: string, lang: string, onEnd?: () => void) {
+    const bcp47 = toBCP47(lang);
+    const clean = text.replace(/```[\s\S]*?```/g, ' ').replace(/##+\s*/g, '').replace(/\*\*/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[-*•]\s*/g, '').replace(/\s+/g, ' ').trim().slice(0, 2000);
+    if (!clean) { onEnd?.(); return; }
     this.setState('speaking');
-    this.broadcastCaption(text, true);
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = lang;
-    utterance.rate = Math.max(0.6, Math.min(1.4, this.settings.speechRate));
-    utterance.pitch = Math.max(0.7, Math.min(1.3, this.settings.speechPitch));
-    utterance.volume = Math.max(0.1, Math.min(1.0, this.settings.speechVolume));
-
-    utterance.onend = () => {
-      this.setState('idle');
-      this.broadcastCaption('', false);
-      onEnd?.();
+    this.broadcastCaption(clean, true);
+    const chunks = clean.match(/[^.!?।॥]+[.!?।॥]+|[^.!?।॥]+$/g) || [clean];
+    const queue = chunks.slice(0, 12);
+    let idx = 0;
+    const speakNext = () => {
+      if (idx >= queue.length) { this.setState('idle'); this.broadcastCaption('', false); onEnd?.(); return; }
+      const chunk = queue[idx].trim().slice(0, 250);
+      idx++;
+      if (!chunk) { speakNext(); return; }
+      const utterance = new SpeechSynthesisUtterance(chunk);
+      utterance.lang = bcp47;
+      utterance.rate = Math.max(0.6, Math.min(1.4, this.settings.speechRate));
+      utterance.pitch = Math.max(0.7, Math.min(1.3, this.settings.speechPitch));
+      utterance.volume = Math.max(0.1, Math.min(1.0, this.settings.speechVolume));
+      const best = this.getBestVoice(bcp47);
+      if (best) utterance.voice = best;
+      utterance.onend = () => setTimeout(speakNext, 80);
+      utterance.onerror = (e) => { console.warn('TTS chunk error:', e); setTimeout(speakNext, 80); };
+      window.speechSynthesis.speak(utterance);
     };
-
-    utterance.onerror = (e) => {
-      console.warn('SpeechSynthesis error:', e);
-      this.setState('idle');
-      this.broadcastCaption('', false);
-      onEnd?.();
-    };
-
-    window.speechSynthesis.speak(utterance);
+    speakNext();
   }
 
   interrupt() {
@@ -276,17 +326,19 @@ class VoiceService {
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      onError(new Error('Speech recognition is not supported in this browser.'));
+      onError(new Error('Speech recognition is not supported in this browser. Try Chrome/Edge.'));
       return;
     }
 
     try {
       this.interrupt();
+      try { window.speechSynthesis?.cancel(); } catch {}
       this.setState('listening');
       this.recognition = new SpeechRecognition();
-      this.recognition.lang = lang;
+      this.recognition.lang = toBCP47(lang);
       this.recognition.interimResults = true;
       this.recognition.continuous = false;
+      this.recognition.maxAlternatives = 1;
 
       this.recognition.onresult = (event: any) => {
         let transcript = '';
