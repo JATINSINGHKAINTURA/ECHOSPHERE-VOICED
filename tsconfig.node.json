@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowSyntheticDefaultImports": true,
+    "outDir": ".tsc-out",
+    "declarationDir": ".tsc-out"
+  },
+  "include": ["vite.config.ts", "api", "lib", "api-dev-server.ts", "tests"]
+}
