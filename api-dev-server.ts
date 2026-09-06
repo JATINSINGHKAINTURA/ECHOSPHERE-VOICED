@@ -9,6 +9,8 @@ import statusHandler from './api/integrations/status.js';
 import modelsHandler from './api/v1/models.js';
 import toolsHandler from './api/tools.js';
 import docsHandler from './api/docs.js';
+import transcribeHandler from './api/transcribe.js';
+import liveTurnHandler from './api/live/turn.js';
 
 export async function handleApiRequest(req: IncomingMessage, res: ServerResponse, next: () => void) {
   const rawUrl = req.url || '';
@@ -44,6 +46,12 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   }
   if (pathname === '/docs' || pathname === '/api/docs') {
     return docsHandler(req, res);
+  }
+  if (pathname === '/transcribe' || pathname === '/api/transcribe') {
+    return transcribeHandler(req, res);
+  }
+  if (pathname === '/live/turn' || pathname === '/api/live/turn') {
+    return liveTurnHandler(req, res);
   }
 
   next();

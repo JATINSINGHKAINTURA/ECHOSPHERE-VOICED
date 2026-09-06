@@ -1,0 +1,10 @@
+{
+  "name": "EchoSphere",
+  "description": "EchoSphere is an accessible, voice-first AI agent that speaks, listens, understands, and safely acts with real-time captions, senior mode, and confirmation guardrails.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,10 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { handleApiRequest } from './api-dev-server';
 
 export default defineConfig({
   plugins: [
     react(),
+    tailwindcss(),
     {
       name: 'echosphere-api-middleware',
       configureServer(server) {

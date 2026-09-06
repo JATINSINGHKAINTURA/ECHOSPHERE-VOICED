@@ -1,0 +1,78 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "lastLoginAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "Voice or text conversation thread",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "model": { "type": "string" },
+        "language": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Chat message item in a conversation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "conversationId": { "type": "string" },
+        "userId": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "assistant", "system"] },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "searchSources": { "type": "array" }
+      },
+      "required": ["id", "conversationId", "userId", "role", "content", "timestamp"]
+    },
+    "Transcription": {
+      "title": "Transcription",
+      "description": "Transcribed audio record using Gemini Transcribe",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "text", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Stores user profiles"
+    },
+    "/users/{userId}/conversations/{conversationId}": {
+      "schema": "Conversation",
+      "description": "Stores user conversations"
+    },
+    "/users/{userId}/conversations/{conversationId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Stores individual conversation messages"
+    },
+    "/users/{userId}/transcriptions/{transcriptionId}": {
+      "schema": "Transcription",
+      "description": "Stores user voice transcriptions"
+    }
+  }
+}
